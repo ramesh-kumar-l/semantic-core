@@ -24,13 +24,21 @@ class QdrantStore(VectorStore):
                 vectors_config=VectorParams(size=self._dim, distance=Distance.COSINE),
             )
 
-    def add(self, id: str, vector: List[float]) -> None:
+    def add(self, id: str, vector: List[float], text: str = "") -> None:
         # Qdrant requires integer or UUID point ids; hash string id to int
         point_id = abs(hash(id)) % (2**63)
         self._client.upsert(
             collection_name=self._collection,
-            points=[PointStruct(id=point_id, vector=vector, payload={"str_id": id})],
+            points=[PointStruct(id=point_id, vector=vector, payload={"str_id": id, "text": text})],
         )
+
+    def get_texts(self) -> dict:
+        results, _ = self._client.scroll(
+            collection_name=self._collection,
+            with_payload=True,
+            limit=10000,
+        )
+        return {p.payload["str_id"]: p.payload.get("text", "") for p in results}
 
     def search(self, vector: List[float], k: int) -> List[Tuple[str, float]]:
         hits: List[ScoredPoint] = self._client.search(

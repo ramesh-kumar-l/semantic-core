@@ -10,5 +10,14 @@ config: Dict[str, Any] = {
         "url": os.getenv("QDRANT_URL", "http://localhost:6333"),
         "collection": os.getenv("QDRANT_COLLECTION", "content"),
         "dim": int(os.getenv("VECTOR_DIM", "384")),
-    }
+    },
+    "ranking": {
+        "enabled": os.getenv("RANKING_ENABLED", "false").lower() == "true",
+    },
+    "hybrid": {
+        "enabled": os.getenv("HYBRID_ENABLED", "false").lower() == "true",
+        "alpha": float(os.getenv("HYBRID_ALPHA", "0.7")),
+        "bm25_k": int(os.getenv("HYBRID_BM25_K", "20")),
+        "vector_k": int(os.getenv("HYBRID_VECTOR_K", "20")),
+    },
 }
