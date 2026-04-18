@@ -1,6 +1,6 @@
-# CurationService
+# Semantic Core Service
 
-CurationService is a FastAPI-based semantic retrieval service with two vector backends:
+Semantic Core Service is a FastAPI-based semantic retrieval service with two vector backends:
 
 - `FlatIndex` for simple in-memory search during local development
 - `QdrantStore` for a production-style vector database workflow
