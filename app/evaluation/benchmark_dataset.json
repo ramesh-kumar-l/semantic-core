@@ -1,0 +1,21 @@
+{
+  "k": 5,
+  "corpus": [
+    {"id": "doc1", "text": "sunny beach with waves and sand"},
+    {"id": "doc2", "text": "mountain hiking trail through forest"},
+    {"id": "doc3", "text": "beach volleyball and tropical sunshine"},
+    {"id": "doc4", "text": "deep sea ocean diving and marine life"},
+    {"id": "doc5", "text": "forest camping and nature walks"},
+    {"id": "doc6", "text": "tropical island beach resort with palm trees"},
+    {"id": "doc7", "text": "machine learning neural networks deep learning"},
+    {"id": "doc8", "text": "artificial intelligence research and large language models"},
+    {"id": "doc9", "text": "pasta carbonara italian recipe cooking"},
+    {"id": "doc10", "text": "sushi japanese cuisine seafood"}
+  ],
+  "queries": [
+    {"query": "beach ocean waves",    "expected_ids": ["doc1", "doc3", "doc4", "doc6"]},
+    {"query": "mountain nature hike", "expected_ids": ["doc2", "doc5"]},
+    {"query": "AI technology models", "expected_ids": ["doc7", "doc8"]},
+    {"query": "food cooking recipe",  "expected_ids": ["doc9", "doc10"]}
+  ]
+}

@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(python -m app.evaluation.benchmark)",
+      "Bash(pip list *)",
+      "Bash(timeout 8 python -c ' *)",
+      "Bash(pip install *)",
+      "Bash(pip show *)",
+      "Bash(timeout 12 python -c ' *)"
     ]
   }
 }
