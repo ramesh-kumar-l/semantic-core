@@ -20,4 +20,20 @@ config: Dict[str, Any] = {
         "bm25_k": int(os.getenv("HYBRID_BM25_K", "20")),
         "vector_k": int(os.getenv("HYBRID_VECTOR_K", "20")),
     },
+    "memory": {
+        "enabled": os.getenv("MEMORY_ENABLED", "true").lower() == "true",
+        "default_namespace": os.getenv("MEMORY_DEFAULT_NAMESPACE", "default"),
+        "lazy_load": os.getenv("MEMORY_LAZY_LOAD", "true").lower() == "true",
+    },
+    "persistence": {
+        "enabled": os.getenv("PERSISTENCE_ENABLED", "true").lower() == "true",
+        "base_path": os.getenv("PERSISTENCE_BASE_PATH", "./data"),
+    },
+    "intelligence": {
+        "enabled": os.getenv("INTELLIGENCE_ENABLED", "false").lower() == "true",
+        "mode": os.getenv("INTELLIGENCE_MODE", "simple"),  # "simple" or "llm"
+        "rewrite": os.getenv("INTELLIGENCE_REWRITE", "true").lower() == "true",
+        "multi_query": os.getenv("INTELLIGENCE_MULTI_QUERY", "false").lower() == "true",
+        "max_queries": int(os.getenv("INTELLIGENCE_MAX_QUERIES", "3")),
+    },
 }

@@ -7,11 +7,20 @@ from app.observability.logger import get_json_logger
 from app.observability.timing import Timer
 from app.core.config import config
 from app.hybrid.fusion import fuse_results
+from app.memory.namespace import resolve as resolve_namespace
+from app.intelligence.analyzer import QueryAnalyzer
+from app.intelligence.strategy import RetrievalStrategy
+from app.intelligence.rewrite import QueryRewriter
+from app.intelligence.multi_query import MultiQueryGenerator
 
 logger = get_json_logger("api.routes")
 router = APIRouter()
 
 _embedder = EmbeddingService()
+_analyzer = QueryAnalyzer()
+_strategist = RetrievalStrategy()
+_rewriter = QueryRewriter()
+_multi_query_gen = MultiQueryGenerator()
 
 _LOW_SCORE = 0.3
 _HIGH_LATENCY_MS = 200
@@ -20,6 +29,34 @@ _HIGH_LATENCY_MS = 200
 @router.post("/content", response_model=IngestResponse)
 def ingest_content(body: IngestRequest, request: Request) -> IngestResponse:
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    memory_cfg = config.get("memory", {})
+
+    if memory_cfg.get("enabled", False):
+        namespace = resolve_namespace(body.namespace)
+        ingest_timer = Timer().start()
+        content_id = str(uuid.uuid4())
+        request.app.state.memory.add(namespace, content_id, body.text)
+        total_ms = ingest_timer.stop()
+
+        logger.info(
+            "ingest",
+            extra={
+                "request_id": request_id,
+                "endpoint": "/content",
+                "namespace": namespace,
+                "total_ms": round(total_ms, 2),
+                "content_id": content_id,
+            },
+        )
+        if total_ms > _HIGH_LATENCY_MS:
+            logger.warning(
+                "retrieval_warning",
+                extra={"event": "retrieval_warning", "type": "high_latency",
+                       "latency_ms": round(total_ms, 2), "endpoint": "/content"},
+            )
+        return IngestResponse(content_id=content_id)
+
+    # Legacy path (memory disabled)
     backend = type(request.app.state.store).__name__
 
     embed_timer = Timer().start()
@@ -59,24 +96,107 @@ def ingest_content(body: IngestRequest, request: Request) -> IngestResponse:
     return IngestResponse(content_id=content_id)
 
 
+def _run_intelligence(query: str) -> tuple[str, dict, dict]:
+    """Returns (effective_query, analysis, strategy_plan). No-op if intelligence disabled."""
+    intel_cfg = config.get("intelligence", {})
+    if not intel_cfg.get("enabled", False):
+        return query, {}, {}
+
+    analysis = _analyzer.analyze(query)
+    plan = _strategist.plan(analysis)
+
+    effective_query = query
+    if intel_cfg.get("rewrite", True):
+        effective_query = _rewriter.rewrite(query)
+        if not effective_query:
+            effective_query = query
+
+    logger.info(
+        "query_analysis",
+        extra={
+            "event": "query_analysis",
+            "original_query": query,
+            "rewritten_query": effective_query,
+            "type": analysis.get("type"),
+            "alpha": plan.get("alpha"),
+            "is_ambiguous": analysis.get("is_ambiguous"),
+        },
+    )
+    return effective_query, analysis, plan
+
+
+def _fuse_multi_query(
+    queries: list[str],
+    store,
+    bm25,
+    plan: dict,
+    embedder: EmbeddingService,
+) -> list[tuple[str, float]]:
+    """Run retrieval for each query and merge by max score."""
+    merged: dict[str, float] = {}
+    for q in queries:
+        vec = embedder.embed(q)
+        if plan.get("use_hybrid") and bm25 is not None:
+            vec_hits = store.search(vec, plan.get("vector_k", 20))
+            bm25_hits = bm25.search(q, plan.get("bm25_k", 20))
+            hits = fuse_results(vec_hits, bm25_hits, alpha=plan.get("alpha", 0.7))
+        else:
+            hits = store.search(vec, 20)
+        for id_, score in hits:
+            if score > merged.get(id_, -1):
+                merged[id_] = score
+    return sorted(merged.items(), key=lambda x: x[1], reverse=True)
+
+
 @router.post("/similar", response_model=SearchResponse)
 def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
+    intel_cfg = config.get("intelligence", {})
+    effective_query, analysis, plan = _run_intelligence(body.query)
+
+    memory_cfg = config.get("memory", {})
+    if memory_cfg.get("enabled", False):
+        namespace = resolve_namespace(body.namespace)
+        search_query = effective_query if intel_cfg.get("enabled", False) else body.query
+        hits = request.app.state.memory.search(namespace, search_query, body.k)
+        return SearchResponse(results=[SearchResult(id=id_, score=score) for id_, score in hits])
+
+    # Legacy path (memory disabled)
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     backend = type(request.app.state.store).__name__
     hybrid_cfg = config["hybrid"]
     ranking_cfg = config["ranking"]
 
+    intel_enabled = intel_cfg.get("enabled", False)
+    active_query = effective_query if intel_enabled else body.query
+
     embed_timer = Timer().start()
-    vector = _embedder.embed(body.query)
+    vector = _embedder.embed(active_query)
     embedding_ms = embed_timer.stop()
 
     search_timer = Timer().start()
 
-    if hybrid_cfg["enabled"]:
-        vector_k = hybrid_cfg["vector_k"]
-        bm25_k = hybrid_cfg["bm25_k"]
+    use_multi = intel_enabled and intel_cfg.get("multi_query", False)
+    if use_multi:
+        queries = _multi_query_gen.generate(active_query)
+        logger.info(
+            "query_analysis",
+            extra={"event": "query_analysis", "queries_generated": len(queries)},
+        )
+        hits = _fuse_multi_query(
+            queries,
+            request.app.state.store,
+            request.app.state.bm25 if hybrid_cfg["enabled"] else None,
+            plan if plan else {"use_hybrid": hybrid_cfg["enabled"], "alpha": hybrid_cfg["alpha"],
+                               "vector_k": hybrid_cfg["vector_k"], "bm25_k": hybrid_cfg["bm25_k"]},
+            _embedder,
+        )
+    elif hybrid_cfg["enabled"]:
+        vector_k = plan.get("vector_k", hybrid_cfg["vector_k"]) if plan else hybrid_cfg["vector_k"]
+        bm25_k = plan.get("bm25_k", hybrid_cfg["bm25_k"]) if plan else hybrid_cfg["bm25_k"]
+        alpha = plan.get("alpha", hybrid_cfg["alpha"]) if plan else hybrid_cfg["alpha"]
+
         vector_hits = request.app.state.store.search(vector, vector_k)
-        bm25_hits = request.app.state.bm25.search(body.query, bm25_k)
+        bm25_hits = request.app.state.bm25.search(active_query, bm25_k)
 
         if not vector_hits and not bm25_hits:
             logger.warning(
@@ -85,7 +205,6 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
                        "query": body.query},
             )
 
-        # Log disagreement: IDs in one result set but not the other
         vec_ids = {id_ for id_, _ in vector_hits}
         bm25_ids = {id_ for id_, _ in bm25_hits}
         if vec_ids and bm25_ids and not (vec_ids & bm25_ids):
@@ -95,7 +214,7 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
                        "query": body.query},
             )
 
-        hits = fuse_results(vector_hits, bm25_hits, alpha=hybrid_cfg["alpha"])
+        hits = fuse_results(vector_hits, bm25_hits, alpha=alpha)
     else:
         hits = request.app.state.store.search(vector, body.k)
 

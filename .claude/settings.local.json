@@ -7,7 +7,10 @@
       "Bash(timeout 8 python -c ' *)",
       "Bash(pip install *)",
       "Bash(pip show *)",
-      "Bash(timeout 12 python -c ' *)"
+      "Bash(timeout 12 python -c ' *)",
+      "Bash(rm -rf data)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(python *)"
     ]
   }
 }

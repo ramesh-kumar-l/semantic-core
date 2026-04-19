@@ -7,6 +7,7 @@ from app.api.routes import router
 from app.observability.middleware import ObservabilityMiddleware
 from app.hybrid.bm25 import BM25Index
 from app.ranking.simple import SimpleRankingService
+from app.memory.service import MemoryService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
     app.state.store = store
     app.state.bm25 = BM25Index()
     app.state.ranker = SimpleRankingService()
+    app.state.memory = MemoryService()
     logger.info("Vector store initialized: type=%s", config["vector_store"]["type"])
     yield
 
