@@ -14,6 +14,8 @@ from app.learning.l2r_model import L2RModel
 from app.planner.store import PlannerStore
 from app.planner.rule_based import RuleBasedPlanner
 from app.planner.adaptive import AdaptivePlanner
+from app.graph.factory import get_graph
+from app.semantic.service import SemanticService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,6 +62,16 @@ async def lifespan(app: FastAPI):
     else:
         app.state.planner = RuleBasedPlanner()
         logger.info("Query planner initialized: mode=rule_based")
+
+    graph_cfg = config.get("graph", {})
+    if graph_cfg.get("enabled", True):
+        graph = get_graph(config)
+        app.state.graph = graph
+        app.state.semantic = SemanticService(graph)
+        logger.info("Graph initialized: type=%s", graph_cfg.get("type", "sqlite"))
+    else:
+        app.state.graph = None
+        app.state.semantic = None
 
     logger.info("Vector store initialized: type=%s", config["vector_store"]["type"])
     yield

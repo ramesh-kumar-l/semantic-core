@@ -48,4 +48,12 @@ config: Dict[str, Any] = {
         "model_path": os.getenv("LEARNING_MODEL_PATH", "./models/l2r.pkl"),
         "feedback_path": os.getenv("LEARNING_FEEDBACK_PATH", "./data/feedback.jsonl"),
     },
+    "graph": {
+        "enabled": os.getenv("GRAPH_ENABLED", "true").lower() == "true",
+        "type": os.getenv("GRAPH_TYPE", "sqlite"),          # "sqlite" | "neo4j"
+        "path": os.getenv("GRAPH_PATH", "./data/graph.db"),
+        "neo4j_uri": os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+        "neo4j_user": os.getenv("NEO4J_USER", "neo4j"),
+        "neo4j_password": os.getenv("NEO4J_PASSWORD", ""),
+    },
 }

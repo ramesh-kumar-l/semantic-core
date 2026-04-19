@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -20,3 +20,24 @@ class FeedbackRequest(BaseModel):
     clicked: str
     position: int = Field(default=0, ge=0)
     timestamp: Optional[int] = None
+
+
+# ── Semantic / Graph requests ──────────────────────────────────────────────────
+
+class SemanticIngestRequest(BaseModel):
+    id: Optional[str] = None                        # auto-generated if omitted
+    text: Optional[str] = None
+    type: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    namespace: Optional[str] = None
+
+
+class SemanticQueryRequest(BaseModel):
+    query: Optional[str] = None
+    type: Optional[str] = None
+    person: Optional[str] = None
+    location: Optional[str] = None
+    event: Optional[str] = None
+    depth: int = Field(default=1, ge=1, le=4)
+    k: int = Field(default=10, ge=1, le=100)
+    namespace: Optional[str] = None

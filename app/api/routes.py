@@ -1,7 +1,14 @@
 import uuid
-from fastapi import APIRouter, Request
-from app.schemas.requests import IngestRequest, SearchRequest, FeedbackRequest
-from app.schemas.responses import IngestResponse, SearchResponse, SearchResult, FeedbackResponse
+from typing import Optional
+from fastapi import APIRouter, Request, HTTPException
+from app.schemas.requests import (
+    IngestRequest, SearchRequest, FeedbackRequest,
+    SemanticIngestRequest, SemanticQueryRequest,
+)
+from app.schemas.responses import (
+    IngestResponse, SearchResponse, SearchResult, FeedbackResponse,
+    SemanticIngestResponse, SemanticQueryResponse, GraphNode, GraphNeighborsResponse,
+)
 from app.services.embedding import EmbeddingService
 from app.observability.logger import get_json_logger
 from app.observability.timing import Timer
@@ -353,3 +360,76 @@ def record_feedback(body: FeedbackRequest, request: Request) -> FeedbackResponse
         },
     )
     return FeedbackResponse(status="ok")
+
+
+# ── Semantic / Graph endpoints ─────────────────────────────────────────────────
+
+def _require_semantic(request: Request):
+    svc = getattr(request.app.state, "semantic", None)
+    if svc is None:
+        raise HTTPException(status_code=503, detail="Semantic layer not enabled (GRAPH_ENABLED=false)")
+    return svc
+
+
+@router.post("/semantic/ingest", response_model=SemanticIngestResponse)
+def semantic_ingest(body: SemanticIngestRequest, request: Request) -> SemanticIngestResponse:
+    svc = _require_semantic(request)
+
+    obj_id = body.id or str(uuid.uuid4())
+    input_data: dict = dict(body.metadata)
+    if body.text:
+        input_data["text"] = body.text
+
+    obj = svc.ingest(id=obj_id, input_data=input_data, type_hint=body.type)
+
+    logger.info(
+        "semantic_ingest",
+        extra={"event": "semantic_ingest", "id": obj_id, "type": obj.type},
+    )
+    return SemanticIngestResponse(id=obj.id, type=obj.type, metadata=obj.metadata)
+
+
+@router.post("/semantic/query", response_model=SemanticQueryResponse)
+def semantic_query(body: SemanticQueryRequest, request: Request) -> SemanticQueryResponse:
+    svc = _require_semantic(request)
+
+    intent = {
+        "type": body.type,
+        "person": body.person,
+        "location": body.location,
+        "event": body.event,
+    }
+    intent = {k: v for k, v in intent.items() if v}
+
+    nodes = svc.query(intent)
+    nodes = nodes[: body.k]
+
+    logger.info(
+        "semantic_query",
+        extra={"event": "semantic_query", "intent": intent, "hits": len(nodes)},
+    )
+    return SemanticQueryResponse(
+        nodes=[GraphNode(**n) for n in nodes],
+        total=len(nodes),
+    )
+
+
+@router.get("/semantic/node/{node_id}", response_model=GraphNeighborsResponse)
+def get_graph_node(
+    node_id: str,
+    request: Request,
+    relation: Optional[str] = None,
+    direction: str = "outbound",
+    depth: int = 1,
+) -> GraphNeighborsResponse:
+    svc = _require_semantic(request)
+
+    node = svc.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+
+    neighbors = svc.get_related(node_id, relation=relation, depth=depth, direction=direction)
+    return GraphNeighborsResponse(
+        node=GraphNode(**node),
+        neighbors=[GraphNode(**n) for n in neighbors],
+    )
