@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Request
-from app.schemas.requests import IngestRequest, SearchRequest
-from app.schemas.responses import IngestResponse, SearchResponse, SearchResult
+from app.schemas.requests import IngestRequest, SearchRequest, FeedbackRequest
+from app.schemas.responses import IngestResponse, SearchResponse, SearchResult, FeedbackResponse
 from app.services.embedding import EmbeddingService
 from app.observability.logger import get_json_logger
 from app.observability.timing import Timer
@@ -12,6 +12,7 @@ from app.intelligence.analyzer import QueryAnalyzer
 from app.intelligence.strategy import RetrievalStrategy
 from app.intelligence.rewrite import QueryRewriter
 from app.intelligence.multi_query import MultiQueryGenerator
+from app.planner.store import PlannerStore
 
 logger = get_json_logger("api.routes")
 router = APIRouter()
@@ -153,11 +154,38 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
     intel_cfg = config.get("intelligence", {})
     effective_query, analysis, plan = _run_intelligence(body.query)
 
+    planner_cfg = config.get("planner", {})
+    if planner_cfg.get("enabled", False):
+        namespace_for_plan = resolve_namespace(body.namespace)
+        plan = request.app.state.planner.plan(
+            body.query, namespace_for_plan, {"analysis": analysis}
+        )
+        logger.info(
+            "query_plan",
+            extra={
+                "event": "query_plan",
+                "mode": planner_cfg.get("mode", "rule_based"),
+                "alpha": plan.get("alpha"),
+                "vector_k": plan.get("vector_k"),
+                "bm25_k": plan.get("bm25_k"),
+                "use_hybrid": plan.get("use_hybrid"),
+            },
+        )
+
     memory_cfg = config.get("memory", {})
     if memory_cfg.get("enabled", False):
         namespace = resolve_namespace(body.namespace)
         search_query = effective_query if intel_cfg.get("enabled", False) else body.query
         hits = request.app.state.memory.search(namespace, search_query, body.k)
+
+        learning_cfg = config.get("learning", {})
+        if learning_cfg.get("enabled", False) and hits:
+            if learning_cfg.get("rule_based", True):
+                hits = request.app.state.l2r_rule.rerank(search_query, namespace, hits)
+            if learning_cfg.get("ml_model", False) and request.app.state.l2r_model.is_ready:
+                hits = request.app.state.l2r_model.rerank(search_query, hits)
+            hits = hits[: body.k]
+
         return SearchResponse(results=[SearchResult(id=id_, score=score) for id_, score in hits])
 
     # Legacy path (memory disabled)
@@ -234,6 +262,15 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
 
         hits = request.app.state.ranker.rerank(body.query, hits, texts)
 
+    # L2R phase
+    learning_cfg = config.get("learning", {})
+    if learning_cfg.get("enabled", False) and hits:
+        namespace = resolve_namespace(body.namespace)
+        if learning_cfg.get("rule_based", True):
+            hits = request.app.state.l2r_rule.rerank(body.query, namespace, hits)
+        if learning_cfg.get("ml_model", False) and request.app.state.l2r_model.is_ready:
+            hits = request.app.state.l2r_model.rerank(body.query, hits)
+
     hits = hits[: body.k]
 
     total_ms = embedding_ms + search_ms
@@ -275,3 +312,44 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
         )
 
     return SearchResponse(results=[SearchResult(id=id_, score=score) for id_, score in hits])
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+def record_feedback(body: FeedbackRequest, request: Request) -> FeedbackResponse:
+    learning_cfg = config.get("learning", {})
+    if not learning_cfg.get("enabled", False):
+        return FeedbackResponse(status="disabled")
+
+    namespace = resolve_namespace(body.namespace)
+    event = {
+        "query": body.query,
+        "namespace": namespace,
+        "results": body.results,
+        "clicked": body.clicked,
+        "position": body.position,
+        "timestamp": body.timestamp,
+    }
+
+    request.app.state.feedback_store.add(event)
+    if learning_cfg.get("rule_based", True):
+        request.app.state.l2r_rule.record_click(namespace, body.query, body.clicked)
+
+    planner_cfg = config.get("planner", {})
+    if planner_cfg.get("enabled", False):
+        ctr = 1.0 if body.clicked else 0.0
+        mrr = 1.0 / (body.position + 1) if body.clicked else 0.0
+        query_hash = PlannerStore.hash_query(body.query)
+        current_plan = request.app.state.planner.plan(body.query, namespace, {})
+        request.app.state.planner_store.update(query_hash, current_plan, {"ctr": ctr, "mrr": mrr})
+
+    logger.info(
+        "feedback_recorded",
+        extra={
+            "event": "feedback_recorded",
+            "query": body.query,
+            "namespace": namespace,
+            "clicked": body.clicked,
+            "position": body.position,
+        },
+    )
+    return FeedbackResponse(status="ok")

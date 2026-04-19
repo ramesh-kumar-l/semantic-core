@@ -10,7 +10,8 @@
       "Bash(timeout 12 python -c ' *)",
       "Bash(rm -rf data)",
       "Bash(python -m pytest tests/ -x -q)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(grep -E \"\\\\.\\(py|txt|toml|yaml|yml|json|md\\)$\")"
     ]
   }
 }

@@ -36,4 +36,16 @@ config: Dict[str, Any] = {
         "multi_query": os.getenv("INTELLIGENCE_MULTI_QUERY", "false").lower() == "true",
         "max_queries": int(os.getenv("INTELLIGENCE_MAX_QUERIES", "3")),
     },
+    "planner": {
+        "enabled": os.getenv("PLANNER_ENABLED", "false").lower() == "true",
+        "mode": os.getenv("PLANNER_MODE", "rule_based"),  # "rule_based" or "adaptive"
+        "store_path": os.getenv("PLANNER_STORE_PATH", "./data/planner_store.json"),
+    },
+    "learning": {
+        "enabled": os.getenv("LEARNING_ENABLED", "true").lower() == "true",
+        "rule_based": os.getenv("LEARNING_RULE_BASED", "true").lower() == "true",
+        "ml_model": os.getenv("LEARNING_ML_MODEL", "false").lower() == "true",
+        "model_path": os.getenv("LEARNING_MODEL_PATH", "./models/l2r.pkl"),
+        "feedback_path": os.getenv("LEARNING_FEEDBACK_PATH", "./data/feedback.jsonl"),
+    },
 }

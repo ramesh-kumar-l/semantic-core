@@ -13,3 +13,7 @@ class SearchResult(BaseModel):
 
 class SearchResponse(BaseModel):
     results: List[SearchResult]
+
+
+class FeedbackResponse(BaseModel):
+    status: str
