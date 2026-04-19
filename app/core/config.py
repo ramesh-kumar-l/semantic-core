@@ -56,4 +56,9 @@ config: Dict[str, Any] = {
         "neo4j_user": os.getenv("NEO4J_USER", "neo4j"),
         "neo4j_password": os.getenv("NEO4J_PASSWORD", ""),
     },
+    "linking": {
+        "enabled": os.getenv("LINKING_ENABLED", "true").lower() == "true",
+        "threshold": float(os.getenv("LINKING_THRESHOLD", "0.5")),
+        "time_window_hours": int(os.getenv("LINKING_TIME_WINDOW_HOURS", "2")),
+    },
 }

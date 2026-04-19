@@ -40,6 +40,11 @@ class SQLiteGraph(GraphDB):
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_edges_unique
                         ON edges(source, relation, target);
                 """)
+                # Migrate: add weight column if missing (safe on existing DBs)
+                try:
+                    conn.execute("ALTER TABLE edges ADD COLUMN weight REAL DEFAULT 1.0")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
 
     # ------------------------------------------------------------------ writes
 
@@ -51,12 +56,12 @@ class SQLiteGraph(GraphDB):
                     (id, type, json.dumps(metadata, default=str)),
                 )
 
-    def add_edge(self, source: str, relation: str, target: str) -> None:
+    def add_edge(self, source: str, relation: str, target: str, weight: float = 1.0) -> None:
         with self._lock:
             with self._conn() as conn:
                 conn.execute(
-                    "INSERT OR IGNORE INTO edges (source, relation, target) VALUES (?, ?, ?)",
-                    (source, relation, target),
+                    "INSERT OR IGNORE INTO edges (source, relation, target, weight) VALUES (?, ?, ?, ?)",
+                    (source, relation, target, weight),
                 )
 
     # ------------------------------------------------------------------ reads

@@ -16,6 +16,9 @@ from app.planner.rule_based import RuleBasedPlanner
 from app.planner.adaptive import AdaptivePlanner
 from app.graph.factory import get_graph
 from app.semantic.service import SemanticService
+from app.linking.engine import LinkingEngine
+from app.graph_query.engine import GraphQueryEngine
+from app.graph_query.planner import GraphPlanner
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -69,9 +72,19 @@ async def lifespan(app: FastAPI):
         app.state.graph = graph
         app.state.semantic = SemanticService(graph)
         logger.info("Graph initialized: type=%s", graph_cfg.get("type", "sqlite"))
+
+        linking_cfg = config.get("linking", {})
+        threshold = linking_cfg.get("threshold", 0.5)
+        app.state.linking_engine = LinkingEngine(threshold=threshold)
+        app.state.graph_planner = GraphPlanner()
+        app.state.graph_query_engine = GraphQueryEngine()
+        logger.info("Linking engine and graph query engine initialized")
     else:
         app.state.graph = None
         app.state.semantic = None
+        app.state.linking_engine = None
+        app.state.graph_planner = None
+        app.state.graph_query_engine = None
 
     logger.info("Vector store initialized: type=%s", config["vector_store"]["type"])
     yield

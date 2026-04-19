@@ -57,16 +57,18 @@ class Neo4jGraph(GraphDB):
         except Exception as exc:
             logger.error("Neo4j add_node: %s", exc)
 
-    def add_edge(self, source: str, relation: str, target: str) -> None:
+    def add_edge(self, source: str, relation: str, target: str, weight: float = 1.0) -> None:
         if not self._ready:
             return
         try:
             rel = relation.upper()
             with self._session() as s:
                 s.run(
-                    f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) MERGE (a)-[:{rel}]->(b)",
+                    f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
+                    f"MERGE (a)-[r:{rel}]->(b) SET r.weight = $weight",
                     src=source,
                     tgt=target,
+                    weight=weight,
                 )
         except Exception as exc:
             logger.error("Neo4j add_edge: %s", exc)

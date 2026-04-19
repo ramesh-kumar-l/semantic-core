@@ -41,3 +41,14 @@ class SemanticQueryRequest(BaseModel):
     depth: int = Field(default=1, ge=1, le=4)
     k: int = Field(default=10, ge=1, le=100)
     namespace: Optional[str] = None
+
+
+class GraphQueryRequest(BaseModel):
+    person: Optional[str] = None
+    location: Optional[str] = None
+    event: Optional[str] = None
+    time: Optional[str] = None
+    type: Optional[str] = None
+    traversal: Optional[List[str]] = None   # override traversal steps
+    k: int = Field(default=10, ge=1, le=100)
+    fallback_to_retrieval: bool = True

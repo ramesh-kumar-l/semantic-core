@@ -3,11 +3,12 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException
 from app.schemas.requests import (
     IngestRequest, SearchRequest, FeedbackRequest,
-    SemanticIngestRequest, SemanticQueryRequest,
+    SemanticIngestRequest, SemanticQueryRequest, GraphQueryRequest,
 )
 from app.schemas.responses import (
     IngestResponse, SearchResponse, SearchResult, FeedbackResponse,
     SemanticIngestResponse, SemanticQueryResponse, GraphNode, GraphNeighborsResponse,
+    GraphQueryResponse, TraversalStep,
 )
 from app.services.embedding import EmbeddingService
 from app.observability.logger import get_json_logger
@@ -382,9 +383,22 @@ def semantic_ingest(body: SemanticIngestRequest, request: Request) -> SemanticIn
 
     obj = svc.ingest(id=obj_id, input_data=input_data, type_hint=body.type)
 
+    # Auto-link to related existing nodes
+    linking_engine = getattr(request.app.state, "linking_engine", None)
+    links_created = 0
+    if linking_engine is not None:
+        node = svc.get_node(obj.id)
+        if node:
+            links_created = linking_engine.link(node, svc._graph)
+
     logger.info(
         "semantic_ingest",
-        extra={"event": "semantic_ingest", "id": obj_id, "type": obj.type},
+        extra={
+            "event": "semantic_ingest",
+            "id": obj_id,
+            "type": obj.type,
+            "links_created": links_created,
+        },
     )
     return SemanticIngestResponse(id=obj.id, type=obj.type, metadata=obj.metadata)
 
@@ -432,4 +446,62 @@ def get_graph_node(
     return GraphNeighborsResponse(
         node=GraphNode(**node),
         neighbors=[GraphNode(**n) for n in neighbors],
+    )
+
+
+# ── Graph traversal query endpoint ────────────────────────────────────────────
+
+@router.post("/graph_query/execute", response_model=GraphQueryResponse)
+def graph_query_execute(body: GraphQueryRequest, request: Request) -> GraphQueryResponse:
+    """
+    Graph-traversal-based retrieval.
+
+    Builds an anchor-based traversal plan from person/location/event filters,
+    runs bounded BFS, and returns matching nodes.  Falls back to an empty result
+    set (not an error) when no anchors resolve — callers may set
+    fallback_to_retrieval=true to indicate they want the caller-side retrieval
+    fallback applied.
+    """
+    svc = _require_semantic(request)
+
+    planner = getattr(request.app.state, "graph_planner", None)
+    engine = getattr(request.app.state, "graph_query_engine", None)
+
+    if planner is None or engine is None:
+        raise HTTPException(status_code=503, detail="Graph query engine not initialised")
+
+    mapping: dict = {
+        k: v for k, v in {
+            "person": body.person,
+            "location": body.location,
+            "event": body.event,
+            "time": body.time,
+            "type": body.type,
+            "traversal": body.traversal,
+        }.items() if v is not None
+    }
+
+    plan = planner.plan(mapping)
+    result = engine.execute(plan, svc._graph)
+
+    node_ids: list = result["node_ids"][: body.k]
+    fallback_used = False
+
+    if not node_ids and body.fallback_to_retrieval:
+        fallback_used = True
+
+    nodes = []
+    for nid in node_ids:
+        n = svc.get_node(nid)
+        if n:
+            nodes.append(GraphNode(**n))
+
+    return GraphQueryResponse(
+        nodes=nodes,
+        total=len(nodes),
+        traversal_steps=[
+            TraversalStep(**s) for s in result.get("traversal_steps", [])
+        ],
+        truncated=result.get("truncated", False),
+        fallback_used=fallback_used,
     )

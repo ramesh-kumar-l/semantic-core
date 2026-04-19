@@ -41,3 +41,16 @@ class SemanticQueryResponse(BaseModel):
 class GraphNeighborsResponse(BaseModel):
     node: Optional[GraphNode]
     neighbors: List[GraphNode]
+
+
+class TraversalStep(BaseModel):
+    step: str
+    count: int
+
+
+class GraphQueryResponse(BaseModel):
+    nodes: List[GraphNode]
+    total: int
+    traversal_steps: List[TraversalStep]
+    truncated: bool
+    fallback_used: bool
