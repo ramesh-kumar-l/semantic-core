@@ -1,5 +1,35 @@
 import os
+from pathlib import Path
 from typing import Any, Dict
+
+
+def _load_dotenv(path: str = ".env") -> None:
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    with env_path.open("r", encoding="utf-8") as env_file:
+        for line in env_file:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key or key in os.environ:
+                continue
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                value = value[1:-1]
+            os.environ[key] = value
+
+
+# Load .env values before reading environment settings.
+_load_dotenv()
 
 # Config is read from environment variables with sensible defaults.
 # Override VECTOR_STORE_TYPE=qdrant to switch to Qdrant.

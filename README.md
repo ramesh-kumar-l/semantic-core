@@ -1,9 +1,13 @@
 # Semantic Core Service
 
-Semantic Core Service is a FastAPI-based semantic retrieval service with two vector backends:
+Semantic Core Service is a FastAPI-based retrieval platform with semantic search, hybrid retrieval, namespaced memory, feedback-aware ranking, and semantic graph capabilities.
 
 - `FlatIndex` for simple in-memory search during local development
 - `QdrantStore` for a production-style vector database workflow
+
+Detailed product and architecture documentation:
+
+- [docs/PRD.md](/e:/ClaudeProjects/SemanticCoreService/docs/PRD.md:1)
 
 ## Project Structure
 
@@ -50,6 +54,14 @@ pip install -r requirements.txt
 ```
 
 `sentence-transformers` is optional but recommended. If it is not available, the service falls back to a deterministic hash-based embedding stub. The API will still run, but semantic quality will be limited.
+
+If you want authenticated Hugging Face Hub downloads, create a `.env` file in the project root with:
+
+```env
+HF_TOKEN=hf_XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+The project will automatically load `.env` values when it starts.
 
 ## Run Locally
 
@@ -100,6 +112,7 @@ unset VECTOR_STORE_TYPE
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_COLLECTION` | `content` | Collection name |
 | `VECTOR_DIM` | `384` | Embedding dimension |
+| `HF_TOKEN` | none | Optional Hugging Face access token for authenticated model downloads |
 
 ## API Examples
 

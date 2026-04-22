@@ -31,3 +31,7 @@ build/
 
 .DS_Store
 Thumbs.db
+
+# Recheck after Development
+docs/*
+Readme.md

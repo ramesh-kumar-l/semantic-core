@@ -90,6 +90,6 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="CurationService", lifespan=lifespan)
+app = FastAPI(title="Semantic Core Service", lifespan=lifespan)
 app.add_middleware(ObservabilityMiddleware)
 app.include_router(router)
