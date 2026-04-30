@@ -12,6 +12,8 @@ class FeedbackStore:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._count: int = 0
+        self._count_loaded: bool = False
 
     def add(self, event: dict) -> None:
         record = {
@@ -25,9 +27,13 @@ class FeedbackStore:
         with self._lock:
             with self._path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
+            if self._count_loaded:
+                self._count += 1
 
     def load_all(self) -> List[dict]:
         if not self._path.exists():
+            self._count = 0
+            self._count_loaded = True
             return []
         records = []
         with self._lock:
@@ -39,4 +45,12 @@ class FeedbackStore:
                             records.append(json.loads(line))
                         except json.JSONDecodeError:
                             continue
+        self._count = len(records)
+        self._count_loaded = True
         return records
+
+    def count(self) -> int:
+        if self._count_loaded:
+            return self._count
+        _ = self.load_all()
+        return self._count

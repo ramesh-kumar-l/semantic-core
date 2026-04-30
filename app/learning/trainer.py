@@ -49,6 +49,14 @@ def main():
     data = build_training_data(events)
     print(f"Generated {len(data)} training samples ({sum(r['is_clicked'] for r in data)} positive)")
 
+    if len(data) < 10:
+        print(
+            f"Insufficient training data: need ≥10 samples, got {len(data)}. "
+            "Collect more feedback events and retry.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     model = L2RModel()
     success = model.train(data)
     if success:

@@ -19,7 +19,10 @@ class FeedbackResponse(BaseModel):
     status: str
 
 
-# ── Semantic / Graph responses ─────────────────────────────────────────────────
+class DeleteResponse(BaseModel):
+    deleted: bool
+
+# â”€â”€ Semantic / Graph responses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class SemanticIngestResponse(BaseModel):
     id: str
@@ -54,3 +57,11 @@ class GraphQueryResponse(BaseModel):
     traversal_steps: List[TraversalStep]
     truncated: bool
     fallback_used: bool
+
+
+class AdminHealthResponse(BaseModel):
+    feature_flags: Dict[str, bool]
+    namespaces: List[str]
+    doc_counts: Dict[str, int]
+    graph_node_count: int
+    feedback_count: int

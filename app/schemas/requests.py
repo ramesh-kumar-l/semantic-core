@@ -5,12 +5,20 @@ from pydantic import BaseModel, Field
 class IngestRequest(BaseModel):
     text: str
     namespace: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SearchRequest(BaseModel):
     query: str
     k: int = Field(default=5, ge=1, le=100)
     namespace: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None
+
+
+class UpdateRequest(BaseModel):
+    text: str
+    namespace: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FeedbackRequest(BaseModel):

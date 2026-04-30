@@ -35,3 +35,5 @@ Thumbs.db
 # Recheck after Development
 docs/*
 Readme.md
+prompts/*
+memory-bank/*

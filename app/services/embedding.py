@@ -9,7 +9,7 @@ try:
 
     _model = _ST("all-MiniLM-L6-v2")
     _USE_REAL = True
-except ImportError:
+except Exception:
     _USE_REAL = False
 
 DIM = 384

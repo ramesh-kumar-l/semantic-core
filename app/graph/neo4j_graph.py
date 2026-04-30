@@ -131,6 +131,23 @@ class Neo4jGraph(GraphDB):
             logger.error("Neo4j query_nodes: %s", exc)
         return []
 
+    def delete_node(self, id: str) -> bool:
+        if not self._ready:
+            return False
+        try:
+            with self._session() as s:
+                result = s.run(
+                    "MATCH (n {id: $id}) "
+                    "WITH n LIMIT 1 "
+                    "DETACH DELETE n "
+                    "RETURN COUNT(*) AS deleted",
+                    id=id,
+                ).single()
+                return bool(result and result["deleted"] > 0)
+        except Exception as exc:
+            logger.error("Neo4j delete_node: %s", exc)
+        return False
+
     def traverse(self, start_ids: List[str], relation: str, depth: int = 1) -> List[Dict]:
         if not self._ready:
             return []

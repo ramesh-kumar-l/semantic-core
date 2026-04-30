@@ -26,6 +26,9 @@ class GraphDB(ABC):
     def query_nodes(self, filters: dict) -> List[Dict]: ...
 
     @abstractmethod
+    def delete_node(self, id: str) -> bool: ...
+
+    @abstractmethod
     def traverse(self, start_ids: List[str], relation: str, depth: int = 1) -> List[Dict]:
         """Multi-hop traversal (outbound) up to `depth` hops."""
         ...

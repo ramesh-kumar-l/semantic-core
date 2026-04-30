@@ -1,14 +1,14 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Response, status
 from app.schemas.requests import (
-    IngestRequest, SearchRequest, FeedbackRequest,
+    IngestRequest, SearchRequest, FeedbackRequest, UpdateRequest,
     SemanticIngestRequest, SemanticQueryRequest, GraphQueryRequest,
 )
 from app.schemas.responses import (
     IngestResponse, SearchResponse, SearchResult, FeedbackResponse,
     SemanticIngestResponse, SemanticQueryResponse, GraphNode, GraphNeighborsResponse,
-    GraphQueryResponse, TraversalStep,
+    GraphQueryResponse, TraversalStep, AdminHealthResponse,
 )
 from app.services.embedding import EmbeddingService
 from app.observability.logger import get_json_logger
@@ -44,7 +44,7 @@ def ingest_content(body: IngestRequest, request: Request) -> IngestResponse:
         namespace = resolve_namespace(body.namespace)
         ingest_timer = Timer().start()
         content_id = str(uuid.uuid4())
-        request.app.state.memory.add(namespace, content_id, body.text)
+        request.app.state.memory.add(namespace, content_id, body.text, metadata=body.metadata)
         total_ms = ingest_timer.stop()
 
         logger.info(
@@ -75,7 +75,7 @@ def ingest_content(body: IngestRequest, request: Request) -> IngestResponse:
     content_id = str(uuid.uuid4())
 
     store_timer = Timer().start()
-    request.app.state.store.add(content_id, vector, body.text)
+    request.app.state.store.add(content_id, vector, body.text, metadata=body.metadata)
     if config["hybrid"]["enabled"]:
         request.app.state.bm25.add(content_id, body.text)
     store_ms = store_timer.stop()
@@ -184,7 +184,7 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
     if memory_cfg.get("enabled", False):
         namespace = resolve_namespace(body.namespace)
         search_query = effective_query if intel_cfg.get("enabled", False) else body.query
-        hits = request.app.state.memory.search(namespace, search_query, body.k)
+        hits = request.app.state.memory.search(namespace, search_query, body.k, filters=body.filters)
 
         learning_cfg = config.get("learning", {})
         if learning_cfg.get("enabled", False) and hits:
@@ -231,8 +231,8 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
         bm25_k = plan.get("bm25_k", hybrid_cfg["bm25_k"]) if plan else hybrid_cfg["bm25_k"]
         alpha = plan.get("alpha", hybrid_cfg["alpha"]) if plan else hybrid_cfg["alpha"]
 
-        vector_hits = request.app.state.store.search(vector, vector_k)
-        bm25_hits = request.app.state.bm25.search(active_query, bm25_k)
+        vector_hits = request.app.state.store.search(vector, vector_k, filters=body.filters)
+        bm25_hits = [] if body.filters else request.app.state.bm25.search(active_query, bm25_k)
 
         if not vector_hits and not bm25_hits:
             logger.warning(
@@ -250,9 +250,9 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
                        "query": body.query},
             )
 
-        hits = fuse_results(vector_hits, bm25_hits, alpha=alpha)
+        hits = vector_hits if body.filters else fuse_results(vector_hits, bm25_hits, alpha=alpha)
     else:
-        hits = request.app.state.store.search(vector, body.k)
+        hits = request.app.state.store.search(vector, body.k, filters=body.filters)
 
     search_ms = search_timer.stop()
 
@@ -361,6 +361,45 @@ def record_feedback(body: FeedbackRequest, request: Request) -> FeedbackResponse
         },
     )
     return FeedbackResponse(status="ok")
+
+
+@router.put("/content/{content_id}", response_model=IngestResponse)
+def update_content(content_id: str, body: UpdateRequest, request: Request) -> IngestResponse:
+    memory_cfg = config.get("memory", {})
+    if not memory_cfg.get("enabled", False):
+        raise HTTPException(status_code=503, detail="Memory service not enabled")
+
+    namespace = resolve_namespace(body.namespace)
+    updated = request.app.state.memory.update(
+        namespace,
+        content_id,
+        body.text,
+        metadata=body.metadata,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Content '{content_id}' not found")
+    return IngestResponse(content_id=content_id)
+
+
+@router.delete("/content/{content_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_content(content_id: str, request: Request) -> Response:
+    memory_cfg = config.get("memory", {})
+    if not memory_cfg.get("enabled", False):
+        raise HTTPException(status_code=503, detail="Memory service not enabled")
+
+    namespace = resolve_namespace(request.query_params.get("namespace"))
+    deleted = request.app.state.memory.delete(namespace, content_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Content '{content_id}' not found")
+
+    semantic = getattr(request.app.state, "semantic", None)
+    if semantic is not None and getattr(semantic, "_graph", None) is not None:
+        try:
+            semantic._graph.delete_node(content_id)
+        except Exception:
+            pass
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ── Semantic / Graph endpoints ─────────────────────────────────────────────────
@@ -504,4 +543,40 @@ def graph_query_execute(body: GraphQueryRequest, request: Request) -> GraphQuery
         ],
         truncated=result.get("truncated", False),
         fallback_used=fallback_used,
+    )
+
+
+@router.get("/admin/health", response_model=AdminHealthResponse)
+def admin_health(request: Request) -> AdminHealthResponse:
+    memory = request.app.state.memory
+    doc_counts = memory.namespace_stats()
+    namespaces = sorted(doc_counts.keys())
+
+    graph_node_count = 0
+    semantic = getattr(request.app.state, "semantic", None)
+    if semantic is not None and getattr(semantic, "_graph", None) is not None:
+        try:
+            graph_node_count = len(semantic._graph.query_nodes({}))
+        except Exception:
+            graph_node_count = 0
+
+    feedback_store = getattr(request.app.state, "feedback_store", None)
+    feedback_count = feedback_store.count() if feedback_store is not None else 0
+
+    feature_flags = {
+        "memory_enabled": config.get("memory", {}).get("enabled", False),
+        "hybrid_enabled": config.get("hybrid", {}).get("enabled", False),
+        "ranking_enabled": config.get("ranking", {}).get("enabled", False),
+        "learning_enabled": config.get("learning", {}).get("enabled", False),
+        "intelligence_enabled": config.get("intelligence", {}).get("enabled", False),
+        "planner_enabled": config.get("planner", {}).get("enabled", False),
+        "graph_enabled": config.get("graph", {}).get("enabled", False),
+    }
+
+    return AdminHealthResponse(
+        feature_flags=feature_flags,
+        namespaces=namespaces,
+        doc_counts=doc_counts,
+        graph_node_count=graph_node_count,
+        feedback_count=feedback_count,
     )

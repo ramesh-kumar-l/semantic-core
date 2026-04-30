@@ -116,6 +116,13 @@ class SQLiteGraph(GraphDB):
                 results.append({"id": row["id"], "type": row["type"], "metadata": meta})
         return results
 
+    def delete_node(self, id: str) -> bool:
+        with self._lock:
+            with self._conn() as conn:
+                conn.execute("DELETE FROM edges WHERE source = ? OR target = ?", (id, id))
+                cur = conn.execute("DELETE FROM nodes WHERE id = ?", (id,))
+                return cur.rowcount > 0
+
     def traverse(self, start_ids: List[str], relation: str, depth: int = 1) -> List[Dict]:
         visited: set = set(start_ids)
         frontier = list(start_ids)

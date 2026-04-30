@@ -30,6 +30,16 @@ class BM25Index:
         total = sum(len(d) for d in self._doc_tokens)
         self._avg_dl = total / len(self._doc_tokens)
 
+    def delete(self, id: str) -> bool:
+        try:
+            idx = self._ids.index(id)
+        except ValueError:
+            return False
+        self._ids.pop(idx)
+        self._doc_tokens.pop(idx)
+        self._rebuild_stats()
+        return True
+
     def search(self, query: str, k: int) -> List[Tuple[str, float]]:
         if not self._ids:
             return []
@@ -59,3 +69,14 @@ class BM25Index:
         top_k = min(k, n)
         indexed = sorted(range(n), key=lambda i: scores[i], reverse=True)[:top_k]
         return [(self._ids[i], scores[i]) for i in indexed if scores[i] > 0]
+
+    def _rebuild_stats(self) -> None:
+        self._df = defaultdict(int)
+        if not self._doc_tokens:
+            self._avg_dl = 0.0
+            return
+        for tokens in self._doc_tokens:
+            for term in set(tokens):
+                self._df[term] += 1
+        total = sum(len(d) for d in self._doc_tokens)
+        self._avg_dl = total / len(self._doc_tokens)

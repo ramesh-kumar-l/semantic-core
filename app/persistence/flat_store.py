@@ -3,7 +3,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -14,7 +14,14 @@ def _namespace_dir(base_path: str, namespace: str) -> Path:
     return Path(base_path) / namespace / "flat"
 
 
-def save(base_path: str, namespace: str, vectors: List[np.ndarray], ids: List[str], texts: List[str]) -> None:
+def save(
+    base_path: str,
+    namespace: str,
+    vectors: List[np.ndarray],
+    ids: List[str],
+    texts: List[str],
+    metadata: Optional[List[Dict[str, Any]]] = None,
+) -> None:
     out_dir = _namespace_dir(base_path, namespace)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -26,13 +33,18 @@ def save(base_path: str, namespace: str, vectors: List[np.ndarray], ids: List[st
     _atomic_write_npy(out_dir / "vectors.npy", matrix)
     _atomic_write_json(out_dir / "ids.json", ids)
     _atomic_write_json(out_dir / "texts.json", texts)
+    _atomic_write_json(out_dir / "metadata.json", metadata if metadata is not None else [{} for _ in ids])
 
 
-def load(base_path: str, namespace: str) -> Optional[Tuple[List[np.ndarray], List[str], List[str]]]:
+def load(
+    base_path: str,
+    namespace: str,
+) -> Optional[Tuple[List[np.ndarray], List[str], List[str], List[Dict[str, Any]]]]:
     out_dir = _namespace_dir(base_path, namespace)
     vec_path = out_dir / "vectors.npy"
     ids_path = out_dir / "ids.json"
     texts_path = out_dir / "texts.json"
+    metadata_path = out_dir / "metadata.json"
 
     if not vec_path.exists() or not ids_path.exists():
         return None
@@ -41,8 +53,13 @@ def load(base_path: str, namespace: str) -> Optional[Tuple[List[np.ndarray], Lis
         matrix = np.load(str(vec_path))
         ids: List[str] = json.loads(ids_path.read_text())
         texts: List[str] = json.loads(texts_path.read_text()) if texts_path.exists() else [""] * len(ids)
+        metadata: List[Dict[str, Any]] = (
+            json.loads(metadata_path.read_text()) if metadata_path.exists() else [{} for _ in ids]
+        )
+        if len(metadata) != len(ids):
+            metadata = [{} for _ in ids]
         vectors = [matrix[i] for i in range(len(matrix))] if matrix.ndim > 1 else []
-        return vectors, ids, texts
+        return vectors, ids, texts, metadata
     except Exception as exc:
         logger.warning("flat_store.load failed namespace=%s: %s", namespace, exc)
         return None

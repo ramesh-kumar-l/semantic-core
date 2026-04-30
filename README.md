@@ -73,6 +73,26 @@ uvicorn app.main:app --reload
 
 The service will be available at `http://localhost:8000`.
 
+## Streamlit Testing Interface
+
+Run the API first, then launch the demo UI:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The UI provides tabs for:
+- Ingest (`POST /content`)
+- Search (`POST /similar`)
+- Feedback (`POST /feedback`)
+- Semantic Ingest (`POST /semantic/ingest`)
+- Semantic Query (`POST /semantic/query`)
+- Graph Node Lookup (`GET /semantic/node/{node_id}`)
+- Graph Query (`POST /graph_query/execute`)
+- System Health (`GET /admin/health`)
+
+If the API is not reachable, the UI shows a clear error instead of crashing.
+
 ## Run with Qdrant
 
 Start Qdrant:

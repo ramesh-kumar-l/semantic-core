@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import config
 from app.core.factory import get_vector_store
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class MemoryService:
     def __init__(self) -> None:
         self._ns_mgr = NamespaceManager()
-        self._stores: Dict[str, FlatIndex] = {}
+        self._stores: Dict[str, VectorStore] = {}
         self._bm25s: Dict[str, BM25Index] = {}
         self._embedder = EmbeddingService()
         self._ranker = SimpleRankingService()
@@ -31,18 +31,30 @@ class MemoryService:
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
-    def add(self, namespace: str, id: str, text: str) -> None:
+    def add(
+        self,
+        namespace: str,
+        id: str,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
         namespace = ns_mod.resolve(namespace)
         ns_mod.validate(namespace)
         self._ensure_loaded(namespace)
 
         vector = self._embedder.embed(text)
-        self._stores[namespace].add(id, vector, text)
+        self._stores[namespace].add(id, vector, text, metadata=metadata)
         self._bm25s[namespace].add(id, text)
 
         self._persist(namespace)
 
-    def search(self, namespace: str, query: str, k: int) -> List[Tuple[str, float]]:
+    def search(
+        self,
+        namespace: str,
+        query: str,
+        k: int,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Tuple[str, float]]:
         namespace = ns_mod.resolve(namespace)
         ns_mod.validate(namespace)
         self._ensure_loaded(namespace)
@@ -57,18 +69,58 @@ class MemoryService:
         if hybrid_cfg.get("enabled"):
             vector_k = hybrid_cfg.get("vector_k", 20)
             bm25_k = hybrid_cfg.get("bm25_k", 20)
-            hits = fuse_results(
-                store.search(vector, vector_k),
-                bm25.search(query, bm25_k),
-                alpha=hybrid_cfg.get("alpha", 0.7),
-            )
+            if filters:
+                hits = store.search(vector, max(k, vector_k), filters=filters)
+            else:
+                hits = fuse_results(
+                    store.search(vector, vector_k, filters=filters),
+                    bm25.search(query, bm25_k),
+                    alpha=hybrid_cfg.get("alpha", 0.7),
+                )
         else:
-            hits = store.search(vector, k)
+            hits = store.search(vector, k, filters=filters)
 
         if ranking_cfg.get("enabled") and hits:
             hits = self._ranker.rerank(query, hits, store.get_texts())
 
         return hits[:k]
+
+    def delete(self, namespace: str, id: str) -> bool:
+        namespace = ns_mod.resolve(namespace)
+        ns_mod.validate(namespace)
+        self._ensure_loaded(namespace)
+
+        deleted = self._stores[namespace].delete(id)
+        if not deleted:
+            return False
+        self._bm25s[namespace].delete(id)
+        self._persist(namespace)
+        return True
+
+    def update(
+        self,
+        namespace: str,
+        id: str,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        deleted = self.delete(namespace, id)
+        if not deleted:
+            return False
+        self.add(namespace, id, text, metadata=metadata)
+        return True
+
+    def namespace_stats(self) -> Dict[str, int]:
+        stats: Dict[str, int] = {}
+        namespaces = set(self._stores.keys()) | set(self._bm25s.keys())
+        for namespace in namespaces:
+            self._ensure_loaded(namespace)
+            store = self._stores.get(namespace)
+            if store is None:
+                stats[namespace] = 0
+                continue
+            stats[namespace] = len(getattr(store, "_ids", []))
+        return stats
 
     # ------------------------------------------------------------------ #
     # Internals                                                            #
@@ -96,12 +148,13 @@ class MemoryService:
         else:
             flat_data = flat_store.load(base, namespace)
             if flat_data:
-                vectors, ids, texts = flat_data
+                vectors, ids, texts, metadata_list = flat_data
                 store = FlatIndex()
-                for id_, vec, text in zip(ids, vectors, texts):
+                for id_, vec, text, metadata in zip(ids, vectors, texts, metadata_list):
                     store._ids.append(id_)
                     store._vectors.append(vec)
                     store._texts.append(text)
+                    store._metadata.append(metadata or {})
                 self._stores[namespace] = store
                 logger.info("memory.load namespace=%s docs=%d", namespace, len(ids))
             else:
@@ -138,7 +191,14 @@ class MemoryService:
         store = self._stores[namespace]
         try:
             if vs_cfg.get("type") != "qdrant":
-                flat_store.save(base, namespace, store._vectors, store._ids, store._texts)
+                flat_store.save(
+                    base,
+                    namespace,
+                    store._vectors,
+                    store._ids,
+                    store._texts,
+                    getattr(store, "_metadata", [{} for _ in getattr(store, "_ids", [])]),
+                )
             bm25_store.save(base, namespace, self._bm25s[namespace])
         except Exception as exc:
             logger.error("memory.persist failed namespace=%s: %s", namespace, exc)
