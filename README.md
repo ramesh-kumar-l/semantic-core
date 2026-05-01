@@ -133,6 +133,48 @@ unset VECTOR_STORE_TYPE
 | `QDRANT_COLLECTION` | `content` | Collection name |
 | `VECTOR_DIM` | `384` | Embedding dimension |
 | `HF_TOKEN` | none | Optional Hugging Face access token for authenticated model downloads |
+| `AUTH_ENABLED` | `false` | Enable API key auth middleware |
+| `API_KEYS` | empty | Comma-separated global API keys |
+| `NAMESPACE_KEYS` | empty | JSON map of API key to allowed namespaces |
+| `RATE_LIMIT_ENABLED` | `false` | Enable per-namespace in-memory token bucket |
+| `RATE_LIMIT_RPM` | `60` | Requests per minute per namespace |
+| `INTELLIGENCE_MODE` | `simple` | `simple` or `llm` query intelligence |
+| `LLM_API_KEY` | empty | Anthropic API key for LLM intelligence mode |
+| `LLM_MODEL` | `claude-haiku-4-5` | Anthropic model name |
+| `LLM_TIMEOUT_S` | `5` | Timeout for LLM calls in seconds |
+| `GRAPH_TYPE` | `sqlite` | `sqlite` or `neo4j` |
+| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j Bolt URI |
+| `NEO4J_USER` | `neo4j` | Neo4j username |
+| `NEO4J_PASSWORD` | empty | Neo4j password |
+
+## Auth and Rate Limiting
+
+- Auth is disabled by default so zero-env startup still works.
+- When enabled, set `X-API-Key` on requests.
+- Namespace-scoped keys can be configured with `NAMESPACE_KEYS`, example:
+
+```bash
+NAMESPACE_KEYS='{"tenant-key-1":["default","travel"]}'
+```
+
+- Rate limiting is in-memory and per-process. In multi-worker deployments, each worker has independent buckets.
+
+## Neo4j Validation
+
+```bash
+docker compose up -d neo4j
+GRAPH_TYPE=neo4j NEO4J_PASSWORD=testpassword python scripts/validate_neo4j.py
+```
+
+The script verifies node creation, edge traversal, bounded traversal, and deletion behavior.
+
+## LLM Intelligence Mode
+
+```bash
+INTELLIGENCE_ENABLED=true INTELLIGENCE_MODE=llm LLM_API_KEY=sk-... uvicorn app.main:app --reload
+```
+
+If an LLM call fails or times out, the service falls back to the original query.
 
 ## API Examples
 

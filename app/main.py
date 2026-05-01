@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from app.core.config import config
 from app.core.factory import get_vector_store
 from app.api.routes import router
+from app.auth.middleware import AuthMiddleware
 from app.observability.middleware import ObservabilityMiddleware
 from app.hybrid.bm25 import BM25Index
 from app.ranking.simple import SimpleRankingService
@@ -87,9 +88,14 @@ async def lifespan(app: FastAPI):
         app.state.graph_query_engine = None
 
     logger.info("Vector store initialized: type=%s", config["vector_store"]["type"])
+    if config.get("auth", {}).get("enabled", False):
+        logger.info("Auth enabled")
+    else:
+        logger.warning("Auth disabled: all requests accepted")
     yield
 
 
 app = FastAPI(title="Semantic Core Service", lifespan=lifespan)
 app.add_middleware(ObservabilityMiddleware)
+app.add_middleware(AuthMiddleware)
 app.include_router(router)

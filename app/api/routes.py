@@ -20,6 +20,9 @@ from app.intelligence.analyzer import QueryAnalyzer
 from app.intelligence.strategy import RetrievalStrategy
 from app.intelligence.rewrite import QueryRewriter
 from app.intelligence.multi_query import MultiQueryGenerator
+from app.intelligence.llm import AnthropicLLMClient
+from app.intelligence.rewrite import LLMQueryRewriter
+from app.intelligence.multi_query import LLMMultiQueryGenerator
 from app.planner.store import PlannerStore
 
 logger = get_json_logger("api.routes")
@@ -30,6 +33,9 @@ _analyzer = QueryAnalyzer()
 _strategist = RetrievalStrategy()
 _rewriter = QueryRewriter()
 _multi_query_gen = MultiQueryGenerator()
+_llm_client: Optional[AnthropicLLMClient] = None
+_llm_rewriter: Optional[LLMQueryRewriter] = None
+_llm_multi_query_gen: Optional[LLMMultiQueryGenerator] = None
 
 _LOW_SCORE = 0.3
 _HIGH_LATENCY_MS = 200
@@ -114,9 +120,18 @@ def _run_intelligence(query: str) -> tuple[str, dict, dict]:
     analysis = _analyzer.analyze(query)
     plan = _strategist.plan(analysis)
 
+    global _llm_client, _llm_rewriter
     effective_query = query
+    use_llm = intel_cfg.get("mode", "simple") == "llm"
+    if use_llm and _llm_client is None:
+        _llm_client = AnthropicLLMClient(
+            api_key=intel_cfg.get("llm_api_key", ""),
+            model=intel_cfg.get("llm_model", "claude-haiku-4-5"),
+            timeout_s=float(intel_cfg.get("llm_timeout_s", 5)),
+        )
+        _llm_rewriter = LLMQueryRewriter(_llm_client)
     if intel_cfg.get("rewrite", True):
-        effective_query = _rewriter.rewrite(query)
+        effective_query = (_llm_rewriter.rewrite(query) if use_llm and _llm_rewriter else _rewriter.rewrite(query))
         if not effective_query:
             effective_query = query
 
@@ -213,7 +228,20 @@ def search_similar(body: SearchRequest, request: Request) -> SearchResponse:
 
     use_multi = intel_enabled and intel_cfg.get("multi_query", False)
     if use_multi:
-        queries = _multi_query_gen.generate(active_query)
+        global _llm_multi_query_gen
+        if intel_cfg.get("mode", "simple") == "llm":
+            if _llm_client is None:
+                _ = _run_intelligence(body.query)
+            if _llm_multi_query_gen is None and _llm_client is not None:
+                _llm_multi_query_gen = LLMMultiQueryGenerator(
+                    _llm_client,
+                    max_queries=intel_cfg.get("max_queries", 3),
+                )
+        queries = (
+            _llm_multi_query_gen.generate(active_query)
+            if intel_cfg.get("mode", "simple") == "llm" and _llm_multi_query_gen is not None
+            else _multi_query_gen.generate(active_query)
+        )
         logger.info(
             "query_analysis",
             extra={"event": "query_analysis", "queries_generated": len(queries)},

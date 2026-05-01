@@ -1,5 +1,6 @@
 import re
 from typing import List
+from app.intelligence.llm import AnthropicLLMClient
 
 _STOPWORDS = {
     "a", "an", "the", "is", "it", "in", "on", "at", "to", "for",
@@ -54,3 +55,20 @@ class QueryRewriter:
 
         result = " ".join(expanded)
         return result if result.strip() else query
+
+
+class LLMQueryRewriter:
+    def __init__(self, client: AnthropicLLMClient) -> None:
+        self._client = client
+
+    def rewrite(self, query: str) -> str:
+        prompt = (
+            "Rewrite the query for semantic search. Keep intent identical, expand with concise synonyms, "
+            "and return one line only.\n"
+            f"Query: {query}"
+        )
+        try:
+            rewritten = self._client.complete(prompt).strip()
+            return rewritten or query
+        except Exception:
+            return query

@@ -1,0 +1,2 @@
+class SchemaVersionError(RuntimeError):
+    pass

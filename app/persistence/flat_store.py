@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from app.persistence.errors import SchemaVersionError
 
 logger = logging.getLogger(__name__)
+_SCHEMA_VERSION = 1
 
 
 def _namespace_dir(base_path: str, namespace: str) -> Path:
@@ -31,9 +33,12 @@ def save(
         matrix = np.empty((0,), dtype=np.float32)
 
     _atomic_write_npy(out_dir / "vectors.npy", matrix)
-    _atomic_write_json(out_dir / "ids.json", ids)
-    _atomic_write_json(out_dir / "texts.json", texts)
-    _atomic_write_json(out_dir / "metadata.json", metadata if metadata is not None else [{} for _ in ids])
+    _atomic_write_json(out_dir / "ids.json", {"schema_version": _SCHEMA_VERSION, "data": ids})
+    _atomic_write_json(out_dir / "texts.json", {"schema_version": _SCHEMA_VERSION, "data": texts})
+    _atomic_write_json(
+        out_dir / "metadata.json",
+        {"schema_version": _SCHEMA_VERSION, "data": metadata if metadata is not None else [{} for _ in ids]},
+    )
 
 
 def load(
@@ -51,18 +56,31 @@ def load(
 
     try:
         matrix = np.load(str(vec_path))
-        ids: List[str] = json.loads(ids_path.read_text())
-        texts: List[str] = json.loads(texts_path.read_text()) if texts_path.exists() else [""] * len(ids)
-        metadata: List[Dict[str, Any]] = (
-            json.loads(metadata_path.read_text()) if metadata_path.exists() else [{} for _ in ids]
-        )
+        ids = _load_versioned_json(ids_path, namespace)
+        texts = _load_versioned_json(texts_path, namespace) if texts_path.exists() else [""] * len(ids)
+        metadata = _load_versioned_json(metadata_path, namespace) if metadata_path.exists() else [{} for _ in ids]
         if len(metadata) != len(ids):
             metadata = [{} for _ in ids]
         vectors = [matrix[i] for i in range(len(matrix))] if matrix.ndim > 1 else []
         return vectors, ids, texts, metadata
+    except SchemaVersionError:
+        raise
     except Exception as exc:
         logger.warning("flat_store.load failed namespace=%s: %s", namespace, exc)
         return None
+
+
+def _load_versioned_json(path: Path, namespace: str):
+    raw = json.loads(path.read_text())
+    if isinstance(raw, dict) and "schema_version" in raw:
+        version = raw.get("schema_version")
+        if version != _SCHEMA_VERSION:
+            raise SchemaVersionError(
+                f"flat_store schema mismatch for namespace='{namespace}': expected {_SCHEMA_VERSION}, got {version}"
+            )
+        return raw.get("data", [])
+    logger.warning("flat_store namespace=%s loading legacy schema_version=0 from %s", namespace, path.name)
+    return raw
 
 
 def _atomic_write_npy(path: Path, data: np.ndarray) -> None:

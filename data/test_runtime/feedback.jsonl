@@ -1,0 +1,2 @@
+{"query": "test query", "namespace": "default", "results": ["fake-id-1", "fake-id-2"], "clicked": "fake-id-1", "position": 0, "timestamp": null}
+{"query": "test query", "namespace": "default", "results": ["fake-id-1", "fake-id-2"], "clicked": "fake-id-1", "position": 0, "timestamp": null}

@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 from typing import Any, Dict
 
@@ -69,6 +70,9 @@ config: Dict[str, Any] = {
         "rewrite": os.getenv("INTELLIGENCE_REWRITE", "true").lower() == "true",
         "multi_query": os.getenv("INTELLIGENCE_MULTI_QUERY", "false").lower() == "true",
         "max_queries": int(os.getenv("INTELLIGENCE_MAX_QUERIES", "3")),
+        "llm_api_key": os.getenv("LLM_API_KEY", ""),
+        "llm_model": os.getenv("LLM_MODEL", "claude-haiku-4-5"),
+        "llm_timeout_s": float(os.getenv("LLM_TIMEOUT_S", "5")),
     },
     "planner": {
         "enabled": os.getenv("PLANNER_ENABLED", "false").lower() == "true",
@@ -95,4 +99,27 @@ config: Dict[str, Any] = {
         "threshold": float(os.getenv("LINKING_THRESHOLD", "0.5")),
         "time_window_hours": int(os.getenv("LINKING_TIME_WINDOW_HOURS", "2")),
     },
+    "auth": {
+        "enabled": os.getenv("AUTH_ENABLED", "false").lower() == "true",
+        "api_keys": {k.strip() for k in os.getenv("API_KEYS", "").split(",") if k.strip()},
+        "namespace_keys": {},
+    },
+    "rate_limit": {
+        "enabled": os.getenv("RATE_LIMIT_ENABLED", "false").lower() == "true",
+        "rpm": int(os.getenv("RATE_LIMIT_RPM", "60")),
+    },
 }
+
+_namespace_keys_raw = os.getenv("NAMESPACE_KEYS", "").strip()
+if _namespace_keys_raw:
+    try:
+        parsed = json.loads(_namespace_keys_raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("NAMESPACE_KEYS must be a JSON object")
+        config["auth"]["namespace_keys"] = {
+            str(key): [str(ns) for ns in namespaces]
+            for key, namespaces in parsed.items()
+            if isinstance(namespaces, list)
+        }
+    except Exception as exc:
+        raise RuntimeError(f"Invalid NAMESPACE_KEYS JSON: {exc}") from exc

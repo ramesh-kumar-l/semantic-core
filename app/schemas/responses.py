@@ -22,6 +22,10 @@ class FeedbackResponse(BaseModel):
 class DeleteResponse(BaseModel):
     deleted: bool
 
+
+class ErrorResponse(BaseModel):
+    detail: str
+
 # â”€â”€ Semantic / Graph responses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class SemanticIngestResponse(BaseModel):
